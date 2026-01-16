@@ -7,3 +7,4 @@ __pycache__/
 face_database.json
 face_data.json
 *.zip
+testing/
