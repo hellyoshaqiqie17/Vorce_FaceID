@@ -1,0 +1,13 @@
+# Same as .dockerignore
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.git/
+.idea/
+.vscode/
+test_*.py
+app.py
+*.log
+*.zip
+face_data.json
