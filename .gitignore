@@ -8,3 +8,4 @@ face_database.json
 face_data.json
 *.zip
 testing/
+testing_local/
