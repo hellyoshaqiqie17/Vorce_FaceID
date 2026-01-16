@@ -3,25 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from api.models import (
-    RegisterStartRequest, RegisterStartResponse,
-    RegisterFrameRequest, RegisterFrameResponse,
-    RegisterCompleteRequest, RegisterCompleteResponse,
+    RegisterRequest, RegisterResponse,
     VerifyRequest, VerifyResponse,
-    VerifySingleFrameRequest, LivenessCheckResponse,
-    UserListResponse, DeleteUserResponse, HealthResponse,
-    RegisterStep, LivenessStatus
+    QuickVerifyRequest,
+    UserListResponse, DeleteUserResponse, HealthResponse
 )
-from api.session_manager import session_manager
 from api.database import face_db
 from api.face_service import face_service
-
-
-STEP_INSTRUCTIONS = {
-    RegisterStep.FRONT: "Posisikan wajah menghadap ke DEPAN",
-    RegisterStep.LEFT: "Putar wajah sedikit ke KIRI",
-    RegisterStep.RIGHT: "Putar wajah sedikit ke KANAN",
-    RegisterStep.COMPLETE: "Registrasi selesai!"
-}
 
 
 @asynccontextmanager
@@ -30,7 +18,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Face ID API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Face ID API", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,124 +31,102 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    return HealthResponse(status="ok", model_loaded=face_service.is_model_loaded())
-
-
-@app.post("/api/face/register/start", response_model=RegisterStartResponse)
-async def register_start(req: RegisterStartRequest):
-    if face_db.user_exists(req.user_id):
-        return RegisterStartResponse(success=False, message=f"User '{req.user_id}' already exists")
-
-    session = session_manager.create_session(req.user_id)
-    return RegisterStartResponse(
-        success=True,
-        session_id=session.session_id,
-        current_step=RegisterStep.FRONT,
-        instruction=STEP_INSTRUCTIONS[RegisterStep.FRONT],
-        message="Session started"
+    return HealthResponse(
+        status="ok",
+        model_loaded=face_service.is_model_loaded(),
+        registered_users=face_db.get_user_count()
     )
 
 
-@app.post("/api/face/register/frame", response_model=RegisterFrameResponse)
-async def register_frame(req: RegisterFrameRequest):
-    session = session_manager.get_session(req.session_id)
-    if not session:
-        return RegisterFrameResponse(success=False, message="Session not found or expired")
+@app.post("/api/register", response_model=RegisterResponse)
+async def register(req: RegisterRequest):
+    """
+    Register wajah baru - SINGLE REQUEST.
+    Kirim 3-15 frames dari berbagai sudut wajah dalam 1 request.
+    """
+    if face_db.user_exists(req.user_id):
+        return RegisterResponse(success=False, message=f"User '{req.user_id}' sudah terdaftar")
 
-    if session.is_complete:
-        return RegisterFrameResponse(success=False, message="Session complete. Call /register/complete")
+    embeddings = []
+    faces_detected = 0
 
-    result = face_service.process_base64(req.frame_base64, generate_embedding=True, check_blink=False)
+    for frame_b64 in req.frames_base64:
+        result = face_service.process_base64(frame_b64, generate_embedding=True, check_blink=False)
+        if result.face_detected:
+            faces_detected += 1
+            if result.embedding is not None:
+                embeddings.append(result.embedding)
 
-    if not result.success or not result.face_detected:
-        return RegisterFrameResponse(
-            success=True,
-            face_detected=False,
-            samples_collected=session.get_current_step_progress(),
-            samples_required=session.SAMPLES_PER_STEP,
-            current_step=session.current_step,
-            instruction=STEP_INSTRUCTIONS[session.current_step],
-            progress=session.get_progress(),
-            message=result.error_message or "No face detected"
+    if len(embeddings) < 3:
+        return RegisterResponse(
+            success=False,
+            faces_detected=faces_detected,
+            samples_saved=len(embeddings),
+            message=f"Minimal 3 wajah terdeteksi. Hanya {len(embeddings)} berhasil."
         )
 
-    if result.embedding is not None:
-        session.add_embedding(result.embedding)
-
-    next_step = None
-    if session.is_step_complete():
-        next_step = session.advance_step()
-
-    return RegisterFrameResponse(
-        success=True,
-        face_detected=True,
-        samples_collected=session.get_current_step_progress(),
-        samples_required=session.SAMPLES_PER_STEP,
-        current_step=session.current_step,
-        next_step=next_step,
-        instruction=STEP_INSTRUCTIONS.get(session.current_step, ""),
-        progress=session.get_progress(),
-        message="Complete" if session.is_complete else "Frame processed"
-    )
-
-
-@app.post("/api/face/register/complete", response_model=RegisterCompleteResponse)
-async def register_complete(req: RegisterCompleteRequest):
-    session = session_manager.get_session(req.session_id)
-    if not session:
-        return RegisterCompleteResponse(success=False, message="Session not found")
-
-    if not session.is_complete:
-        return RegisterCompleteResponse(success=False, message=f"Not complete. Step: {session.current_step.value}")
-
-    if len(session.embeddings) < 5:
-        session_manager.remove_session(req.session_id)
-        return RegisterCompleteResponse(success=False, message=f"Not enough samples ({len(session.embeddings)})")
-
-    avg = face_service.average_embeddings(session.embeddings)
+    avg = face_service.average_embeddings(embeddings)
     if avg is None:
-        session_manager.remove_session(req.session_id)
-        return RegisterCompleteResponse(success=False, message="Failed to generate embedding")
+        return RegisterResponse(success=False, message="Gagal generate embedding")
 
-    face_db.save_embedding(session.user_id, avg, len(session.embeddings))
-    session_manager.remove_session(req.session_id)
+    face_db.save_embedding(req.user_id, avg, len(embeddings))
 
-    return RegisterCompleteResponse(
+    return RegisterResponse(
         success=True,
-        user_id=session.user_id,
-        total_samples=len(session.embeddings),
-        message=f"User '{session.user_id}' registered"
+        user_id=req.user_id,
+        faces_detected=faces_detected,
+        samples_saved=len(embeddings),
+        message=f"Registrasi berhasil dengan {len(embeddings)} samples"
     )
 
 
-@app.post("/api/face/verify", response_model=VerifyResponse)
+@app.post("/api/verify", response_model=VerifyResponse)
 async def verify(req: VerifyRequest):
+    """
+    Verifikasi wajah dengan liveness detection - SINGLE REQUEST.
+    Kirim 3-10 frames, sistem akan cek kedipan mata + face match.
+    """
     stored = face_db.get_embedding(req.user_id)
     if stored is None:
-        return VerifyResponse(success=False, message=f"User '{req.user_id}' not found")
+        return VerifyResponse(success=False, message=f"User '{req.user_id}' tidak ditemukan")
 
     face_service.reset_blink_detector()
     embeddings = []
     blink_detected = False
-    face_count = 0
+    faces_detected = 0
 
     for frame_b64 in req.frames_base64:
         result = face_service.process_base64(frame_b64, generate_embedding=True, check_blink=True)
         if result.face_detected:
-            face_count += 1
+            faces_detected += 1
             if result.embedding is not None:
                 embeddings.append(result.embedding)
             if result.blink_result and result.blink_result.blink_count > 0:
                 blink_detected = True
 
-    if face_count == 0:
-        return VerifyResponse(success=True, verified=False, face_detected=False, message="No face detected")
+    if faces_detected == 0:
+        return VerifyResponse(
+            success=True, verified=False,
+            faces_detected=0,
+            message="Tidak ada wajah terdeteksi"
+        )
 
     if not blink_detected:
-        return VerifyResponse(success=True, verified=False, face_detected=True, liveness_passed=False, message="No blink detected")
+        return VerifyResponse(
+            success=True, verified=False,
+            faces_detected=faces_detected,
+            liveness_passed=False,
+            message="Liveness gagal - tidak ada kedipan terdeteksi"
+        )
 
     if not embeddings:
-        return VerifyResponse(success=True, verified=False, face_detected=True, liveness_passed=True, blink_detected=True, message="Embedding failed")
+        return VerifyResponse(
+            success=True, verified=False,
+            faces_detected=faces_detected,
+            liveness_passed=True,
+            blink_detected=True,
+            message="Gagal generate embedding"
+        )
 
     avg = face_service.average_embeddings(embeddings)
     is_match, similarity = face_service.verify_face(avg, stored)
@@ -169,28 +135,32 @@ async def verify(req: VerifyRequest):
         success=True,
         verified=is_match,
         user_id=req.user_id,
-        similarity=similarity,
+        similarity=round(similarity, 4),
         threshold=face_service.similarity_threshold,
         liveness_passed=True,
         blink_detected=True,
-        face_detected=True,
-        message="Verified" if is_match else "Face mismatch"
+        faces_detected=faces_detected,
+        message="Verifikasi berhasil" if is_match else "Wajah tidak cocok"
     )
 
 
-@app.post("/api/face/verify/single", response_model=VerifyResponse)
-async def verify_single(req: VerifySingleFrameRequest):
+@app.post("/api/verify/quick", response_model=VerifyResponse)
+async def verify_quick(req: QuickVerifyRequest):
+    """
+    Quick verify - 1 frame, tanpa liveness.
+    HANYA untuk testing, tidak aman untuk production.
+    """
     stored = face_db.get_embedding(req.user_id)
     if stored is None:
-        return VerifyResponse(success=False, message=f"User '{req.user_id}' not found")
+        return VerifyResponse(success=False, message=f"User '{req.user_id}' tidak ditemukan")
 
     result = face_service.process_base64(req.frame_base64, generate_embedding=True, check_blink=False)
 
     if not result.face_detected:
-        return VerifyResponse(success=True, verified=False, face_detected=False, message="No face detected")
+        return VerifyResponse(success=True, verified=False, message="Wajah tidak terdeteksi")
 
     if result.embedding is None:
-        return VerifyResponse(success=True, verified=False, face_detected=True, message="Embedding failed")
+        return VerifyResponse(success=True, verified=False, faces_detected=1, message="Embedding gagal")
 
     is_match, similarity = face_service.verify_face(result.embedding, stored)
 
@@ -198,35 +168,10 @@ async def verify_single(req: VerifySingleFrameRequest):
         success=True,
         verified=is_match,
         user_id=req.user_id,
-        similarity=similarity,
+        similarity=round(similarity, 4),
         threshold=face_service.similarity_threshold,
-        face_detected=True,
-        message="Match" if is_match else "No match"
-    )
-
-
-@app.post("/api/face/liveness", response_model=LivenessCheckResponse)
-async def liveness(req: VerifySingleFrameRequest):
-    result = face_service.process_base64(req.frame_base64, generate_embedding=False, check_blink=True)
-
-    if not result.face_detected:
-        return LivenessCheckResponse(success=True, face_detected=False, liveness_status=LivenessStatus.NO_FACE)
-
-    blink = result.blink_result
-    status = LivenessStatus.WAITING_BLINK
-    if blink:
-        if blink.blink_count > 0:
-            status = LivenessStatus.BLINK_DETECTED
-        elif blink.is_blinking:
-            status = LivenessStatus.EYES_CLOSED
-
-    return LivenessCheckResponse(
-        success=True,
-        face_detected=True,
-        blink_count=blink.blink_count if blink else 0,
-        ear_value=blink.ear_avg if blink else 0,
-        liveness_status=status,
-        message="Blink detected" if status == LivenessStatus.BLINK_DETECTED else "Waiting"
+        faces_detected=1,
+        message="Match" if is_match else "Tidak cocok"
     )
 
 
@@ -239,9 +184,9 @@ async def list_users():
 @app.delete("/api/users/{user_id}", response_model=DeleteUserResponse)
 async def delete_user(user_id: str):
     if not face_db.user_exists(user_id):
-        raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+        raise HTTPException(status_code=404, detail=f"User '{user_id}' tidak ditemukan")
     face_db.delete_user(user_id)
-    return DeleteUserResponse(success=True, user_id=user_id, message="Deleted")
+    return DeleteUserResponse(success=True, user_id=user_id, message="User dihapus")
 
 
 if __name__ == "__main__":

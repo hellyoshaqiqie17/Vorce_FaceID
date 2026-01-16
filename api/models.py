@@ -3,13 +3,6 @@ from typing import Optional, List
 from enum import Enum
 
 
-class RegisterStep(str, Enum):
-    FRONT = "front"
-    LEFT = "left"
-    RIGHT = "right"
-    COMPLETE = "complete"
-
-
 class LivenessStatus(str, Enum):
     NO_FACE = "no_face"
     WAITING_BLINK = "waiting_blink"
@@ -17,54 +10,26 @@ class LivenessStatus(str, Enum):
     EYES_CLOSED = "eyes_closed"
 
 
-class RegisterStartRequest(BaseModel):
+# REGISTER - Single request with multiple frames (HEMAT REQUEST)
+class RegisterRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
+    frames_base64: List[str] = Field(..., min_length=3, max_length=15,
+        description="3-15 frames dari berbagai sudut wajah")
 
 
-class RegisterFrameRequest(BaseModel):
-    session_id: str
-    frame_base64: str
-
-
-class RegisterCompleteRequest(BaseModel):
-    session_id: str
-
-
-class VerifyRequest(BaseModel):
-    user_id: str
-    frames_base64: List[str] = Field(..., min_length=1, max_length=10)
-
-
-class VerifySingleFrameRequest(BaseModel):
-    user_id: str
-    frame_base64: str
-
-
-class RegisterStartResponse(BaseModel):
-    success: bool
-    session_id: Optional[str] = None
-    current_step: RegisterStep = RegisterStep.FRONT
-    instruction: str = ""
-    message: str = ""
-
-
-class RegisterFrameResponse(BaseModel):
-    success: bool
-    face_detected: bool = False
-    samples_collected: int = 0
-    samples_required: int = 5
-    current_step: RegisterStep = RegisterStep.FRONT
-    next_step: Optional[RegisterStep] = None
-    instruction: str = ""
-    message: str = ""
-    progress: float = 0.0
-
-
-class RegisterCompleteResponse(BaseModel):
+class RegisterResponse(BaseModel):
     success: bool
     user_id: Optional[str] = None
-    total_samples: int = 0
+    faces_detected: int = 0
+    samples_saved: int = 0
     message: str = ""
+
+
+# VERIFY - Single request with multiple frames
+class VerifyRequest(BaseModel):
+    user_id: str
+    frames_base64: List[str] = Field(..., min_length=3, max_length=10,
+        description="3-10 frames untuk verifikasi + liveness")
 
 
 class VerifyResponse(BaseModel):
@@ -72,22 +37,20 @@ class VerifyResponse(BaseModel):
     verified: bool = False
     user_id: Optional[str] = None
     similarity: float = 0.0
-    threshold: float = 0.35
+    threshold: float = 0.4
     liveness_passed: bool = False
     blink_detected: bool = False
-    face_detected: bool = False
+    faces_detected: int = 0
     message: str = ""
 
 
-class LivenessCheckResponse(BaseModel):
-    success: bool
-    face_detected: bool = False
-    blink_count: int = 0
-    ear_value: float = 0.0
-    liveness_status: LivenessStatus = LivenessStatus.NO_FACE
-    message: str = ""
+# QUICK VERIFY - Single frame, no liveness (untuk testing)
+class QuickVerifyRequest(BaseModel):
+    user_id: str
+    frame_base64: str
 
 
+# USER MANAGEMENT
 class UserListResponse(BaseModel):
     success: bool
     users: List[str] = []
@@ -96,11 +59,11 @@ class UserListResponse(BaseModel):
 
 class DeleteUserResponse(BaseModel):
     success: bool
-    user_id: str
+    user_id: str = ""
     message: str = ""
 
 
 class HealthResponse(BaseModel):
     status: str = "ok"
     model_loaded: bool = False
-    version: str = "1.0.0"
+    registered_users: int = 0
