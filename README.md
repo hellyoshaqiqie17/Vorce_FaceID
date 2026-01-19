@@ -2,11 +2,24 @@
 
 Face Recognition dengan Liveness Detection (Blink) untuk aplikasi HR/Employee Management.
 
+**Storage:** Firebase Firestore (persistent) dengan fallback ke JSON lokal.
+
 ## Base URL
 
 ```
 https://vorce-faceid-544676101248.europe-west1.run.app
 ```
+
+## Setup Firebase
+
+Lihat [FIREBASE_SETUP.md](FIREBASE_SETUP.md) untuk setup Firebase Firestore.
+
+**TL;DR:**
+1. Buat Firebase project
+2. Enable Firestore
+3. Download service account key
+4. Set environment variable `FIREBASE_CREDENTIALS` di Cloud Run
+5. Set `USE_FIREBASE=true`
 
 ## Endpoints
 
