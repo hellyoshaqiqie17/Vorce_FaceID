@@ -14,15 +14,16 @@ if USE_FIREBASE:
         import firebase_admin
         from firebase_admin import credentials, firestore
         
-        cred_json = os.getenv("FIREBASE_CREDENTIALS")
-        if cred_json:
-            cred_dict = json.loads(cred_json)
-            cred = credentials.Certificate(cred_dict)
-        else:
-            cred = credentials.ApplicationDefault()
-        
         if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred)
+            cred_json = os.getenv("FIREBASE_CREDENTIALS")
+            if cred_json:
+                cred_dict = json.loads(cred_json)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+                print("✅ Using Firebase with JSON credentials")
+            else:
+                firebase_admin.initialize_app()
+                print("✅ Using Firebase with Application Default Credentials (Service Account)")
         
         db = firestore.client()
         FIREBASE_AVAILABLE = True
