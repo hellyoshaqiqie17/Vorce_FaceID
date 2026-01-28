@@ -1,69 +1,42 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
-from enum import Enum
+from typing import Optional, List, Dict
 
 
-class LivenessStatus(str, Enum):
-    NO_FACE = "no_face"
-    WAITING_BLINK = "waiting_blink"
-    BLINK_DETECTED = "blink_detected"
-    EYES_CLOSED = "eyes_closed"
+class LivenessRequest(BaseModel):
+    frames: Dict[str, any] = Field(..., description="Frames untuk setiap pose")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "frames": {
+                    "right": "base64_image_string",
+                    "left": "base64_image_string",
+                    "up": "base64_image_string",
+                    "down": "base64_image_string",
+                    "center": "base64_image_string",
+                    "blink": ["base64_1", "base64_2", "base64_3"]
+                }
+            }
+        }
 
 
-# REGISTER - Single request with multiple frames (HEMAT REQUEST)
-class RegisterRequest(BaseModel):
-    user_id: str = Field(..., min_length=1)
-    frames_base64: List[str] = Field(..., min_length=3, max_length=15,
-        description="3-15 frames dari berbagai sudut wajah")
+class PoseCheck(BaseModel):
+    detected: bool
+    expected: str
+    actual: str
+    confidence: float
 
 
-class RegisterResponse(BaseModel):
+class LivenessResponse(BaseModel):
     success: bool
-    user_id: Optional[str] = None
-    faces_detected: int = 0
-    samples_saved: int = 0
+    is_real: bool = False
+    confidence: float = 0.0
+    checks: Dict[str, any] = {}
     message: str = ""
-
-
-# VERIFY - Single request with multiple frames
-class VerifyRequest(BaseModel):
-    user_id: str
-    frames_base64: List[str] = Field(..., min_length=3, max_length=10,
-        description="3-10 frames untuk verifikasi + liveness")
-
-
-class VerifyResponse(BaseModel):
-    success: bool
-    verified: bool = False
-    user_id: Optional[str] = None
-    similarity: float = 0.0
-    threshold: float = 0.4
-    liveness_passed: bool = False
-    blink_detected: bool = False
-    faces_detected: int = 0
-    message: str = ""
-
-
-# QUICK VERIFY - Single frame, no liveness (untuk testing)
-class QuickVerifyRequest(BaseModel):
-    user_id: str
-    frame_base64: str
-
-
-# USER MANAGEMENT
-class UserListResponse(BaseModel):
-    success: bool
-    users: List[str] = []
-    total: int = 0
-
-
-class DeleteUserResponse(BaseModel):
-    success: bool
-    user_id: str = ""
-    message: str = ""
+    details: Optional[Dict[str, any]] = None
 
 
 class HealthResponse(BaseModel):
     status: str = "ok"
     model_loaded: bool = False
-    registered_users: int = 0
+    service: str = "liveness-detection"

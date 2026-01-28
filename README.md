@@ -1,8 +1,8 @@
-# Face ID API
+# Liveness Detection API
 
-Face Recognition dengan Liveness Detection (Blink) untuk aplikasi HR/Employee Management.
+API untuk validasi wajah asli vs foto/video palsu menggunakan head movement dan blink detection.
 
-**Storage:** Firebase Firestore (persistent) dengan fallback ke JSON lokal.
+**Tujuan:** Mencegah spoofing attack dengan foto, video, atau deepfake.
 
 ## Base URL
 
@@ -10,18 +10,9 @@ Face Recognition dengan Liveness Detection (Blink) untuk aplikasi HR/Employee Ma
 https://vorce-faceid-544676101248.europe-west1.run.app
 ```
 
-## Setup Firebase
+---
 
-Lihat [FIREBASE_SETUP.md](FIREBASE_SETUP.md) untuk setup Firebase Firestore.
-
-**TL;DR:**
-1. Buat Firebase project
-2. Enable Firestore
-3. Download service account key
-4. Set environment variable `FIREBASE_CREDENTIALS` di Cloud Run
-5. Set `USE_FIREBASE=true`
-
-## Endpoints
+## Endpoint
 
 ### Health Check
 
@@ -34,230 +25,312 @@ Response:
 {
   "status": "ok",
   "model_loaded": true,
-  "registered_users": 5
+  "service": "liveness-detection"
 }
 ```
 
 ---
 
-### Register (Daftar Wajah)
+### Validate Liveness
 
 ```
-POST /api/register
+POST /api/liveness/validate
 Content-Type: application/json
 ```
 
-Request:
+**Request:**
 ```json
 {
-  "user_id": "EMP001",
-  "frames_base64": [
-    "base64_image_1...",
-    "base64_image_2...",
-    "base64_image_3..."
-  ]
+  "frames": {
+    "right": "base64_image_hadap_kanan",
+    "left": "base64_image_hadap_kiri",
+    "up": "base64_image_lihat_atas",
+    "down": "base64_image_lihat_bawah",
+    "center": "base64_image_lihat_kamera",
+    "blink": [
+      "base64_frame_1",
+      "base64_frame_2",
+      "base64_frame_3"
+    ]
+  }
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| user_id | string | Yes | ID unik user |
-| frames_base64 | array | Yes | 3-15 gambar base64 dari berbagai sudut |
-
-Response:
+**Response (Wajah Asli):**
 ```json
 {
   "success": true,
-  "user_id": "EMP001",
-  "faces_detected": 10,
-  "samples_saved": 10,
-  "message": "Registrasi berhasil dengan 10 samples"
+  "is_real": true,
+  "confidence": 0.92,
+  "message": "Wajah asli terdeteksi",
+  "checks": {
+    "pose_right": {
+      "valid": true,
+      "expected": "right",
+      "actual": "right",
+      "confidence": 0.95,
+      "yaw": 25.3,
+      "pitch": 5.2
+    },
+    "pose_left": {
+      "valid": true,
+      "expected": "left",
+      "actual": "left",
+      "confidence": 0.88,
+      "yaw": -22.1,
+      "pitch": 3.5
+    },
+    "pose_up": {
+      "valid": true,
+      "expected": "up",
+      "actual": "up",
+      "confidence": 0.91,
+      "yaw": 2.1,
+      "pitch": -15.3
+    },
+    "pose_down": {
+      "valid": true,
+      "expected": "down",
+      "actual": "down",
+      "confidence": 0.89,
+      "yaw": -1.2,
+      "pitch": 28.5
+    },
+    "pose_center": {
+      "valid": true,
+      "expected": "center",
+      "actual": "center",
+      "confidence": 0.96,
+      "yaw": 0.5,
+      "pitch": 2.1
+    },
+    "blink": {
+      "valid": true,
+      "blink_count": 2,
+      "frames_processed": 3,
+      "confidence": 1.0
+    },
+    "face_consistency": {
+      "valid": true,
+      "confidence": 0.94,
+      "variation": 0.12,
+      "avg_face_size": 45230.5
+    }
+  },
+  "details": {
+    "total_checks": 7,
+    "passed_checks": 7,
+    "anti_spoofing": {
+      "head_movement": true,
+      "blink_detected": true,
+      "face_consistency": true
+    }
+  }
+}
+```
+
+**Response (Wajah Palsu):**
+```json
+{
+  "success": true,
+  "is_real": false,
+  "confidence": 0.15,
+  "message": "Wajah palsu terdeteksi (foto/video)",
+  "checks": {
+    "pose_right": {
+      "valid": false,
+      "expected": "right",
+      "actual": "center",
+      "confidence": 0.0,
+      "yaw": 2.1,
+      "pitch": 1.5
+    },
+    "blink": {
+      "valid": false,
+      "blink_count": 0,
+      "frames_processed": 3,
+      "confidence": 0.0
+    }
+  }
 }
 ```
 
 ---
 
-### Verify (Login dengan Liveness)
+## Flow Integrasi Flutter
 
-```
-POST /api/verify
-Content-Type: application/json
+### 1. Capture Frames
+
+```dart
+Map<String, dynamic> frames = {};
+
+// Hadap kanan
+frames['right'] = await captureAndConvert();
+
+// Hadap kiri
+frames['left'] = await captureAndConvert();
+
+// Lihat atas
+frames['up'] = await captureAndConvert();
+
+// Lihat bawah
+frames['down'] = await captureAndConvert();
+
+// Lihat kamera
+frames['center'] = await captureAndConvert();
+
+// Kedipkan mata (capture 3-5 frames)
+List<String> blinkFrames = [];
+for (int i = 0; i < 3; i++) {
+  await Future.delayed(Duration(milliseconds: 200));
+  blinkFrames.add(await captureAndConvert());
+}
+frames['blink'] = blinkFrames;
 ```
 
-Request:
-```json
-{
-  "user_id": "EMP001",
-  "frames_base64": [
-    "base64_image_1...",
-    "base64_image_2...",
-    "base64_image_3..."
-  ]
+### 2. Send to API
+
+```dart
+final response = await http.post(
+  Uri.parse('$baseUrl/api/liveness/validate'),
+  headers: {'Content-Type': 'application/json'},
+  body: jsonEncode({'frames': frames}),
+);
+
+final data = jsonDecode(response.body);
+
+if (data['is_real'] == true) {
+  // Wajah asli - lanjutkan ke login
+  print('Liveness check passed: ${data['confidence']}');
+} else {
+  // Wajah palsu - tolak
+  print('Liveness check failed: ${data['message']}');
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| user_id | string | Yes | ID user yang akan diverifikasi |
-| frames_base64 | array | Yes | 3-10 gambar base64 (harus ada kedipan mata) |
+### 3. Convert Image to Base64
 
-Response (Success):
-```json
-{
-  "success": true,
-  "verified": true,
-  "user_id": "EMP001",
-  "similarity": 0.85,
-  "threshold": 0.4,
-  "liveness_passed": true,
-  "blink_detected": true,
-  "faces_detected": 8,
-  "message": "Verifikasi berhasil"
-}
-```
-
-Response (Failed - Face Mismatch):
-```json
-{
-  "success": true,
-  "verified": false,
-  "similarity": 0.25,
-  "threshold": 0.4,
-  "liveness_passed": true,
-  "blink_detected": true,
-  "message": "Wajah tidak cocok"
-}
-```
-
-Response (Failed - No Blink):
-```json
-{
-  "success": true,
-  "verified": false,
-  "liveness_passed": false,
-  "blink_detected": false,
-  "message": "Liveness gagal - tidak ada kedipan terdeteksi"
-}
-```
-
----
-
-### Quick Verify (Tanpa Liveness)
-
-```
-POST /api/verify/quick
-Content-Type: application/json
-```
-
-Request:
-```json
-{
-  "user_id": "EMP001",
-  "frame_base64": "base64_image..."
-}
-```
-
-> ⚠️ Hanya untuk testing. Tidak aman untuk production karena tidak ada liveness check.
-
----
-
-### List Users
-
-```
-GET /api/users
-```
-
-Response:
-```json
-{
-  "success": true,
-  "users": ["EMP001", "EMP002", "EMP003"],
-  "total": 3
-}
-```
-
----
-
-### Delete User
-
-```
-DELETE /api/users/{user_id}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "user_id": "EMP001",
-  "message": "User dihapus"
-}
-```
-
----
-
-## Cara Convert Gambar ke Base64
-
-### JavaScript
-```javascript
-const toBase64 = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.readAsDataURL(file);
-  reader.onload = () => resolve(reader.result.split(',')[1]);
-  reader.onerror = reject;
-});
-```
-
-### Python
-```python
-import base64
-
-with open("image.jpg", "rb") as f:
-    base64_str = base64.b64encode(f.read()).decode()
-```
-
-### Flutter/Dart
 ```dart
 import 'dart:convert';
-import 'dart:io';
+import 'package:camera/camera.dart';
 
-String toBase64(File file) {
-  return base64Encode(file.readAsBytesSync());
+Future<String> captureAndConvert() async {
+  XFile photo = await cameraController.takePicture();
+  Uint8List bytes = await photo.readAsBytes();
+  return base64Encode(bytes);
 }
 ```
 
 ---
 
-## Flow Integrasi
+## Anti-Spoofing Strategy
 
-### Register Flow
-1. Capture 5-15 frame wajah dari berbagai sudut (depan, kiri, kanan)
-2. Convert semua frame ke base64
-3. Kirim ke `POST /api/register`
-4. Simpan user_id untuk login nanti
-
-### Login Flow
-1. Capture 5-10 frame wajah
-2. Instruksikan user untuk kedip 1x
-3. Convert semua frame ke base64
-4. Kirim ke `POST /api/verify`
-5. Cek response `verified: true`
+| Attack Type | Detection Method | How It Works |
+|-------------|------------------|--------------|
+| **Foto** | Head movement + Blink | Foto tidak bisa gerak kepala atau kedip |
+| **Video** | Face consistency | Video biasanya punya ukuran wajah tidak konsisten |
+| **Deepfake** | Multi-pose validation | Sulit generate real-time response untuk semua pose |
+| **Screen replay** | Blink + movement timing | Timing tidak natural |
 
 ---
 
-## Error Codes
+## Validation Checks
 
-| Code | Message | Solution |
-|------|---------|----------|
-| 200 | success: false | Cek field `message` untuk detail |
-| 404 | User not found | User belum terdaftar |
-| 403 | Forbidden | API belum di-set allow unauthenticated |
-| 500 | Internal error | Cek logs di Cloud Run |
+### 1. Head Pose Detection
+
+| Pose | Yaw Range | Pitch Range |
+|------|-----------|-------------|
+| Right | 15° to 100° | any |
+| Left | -100° to -15° | any |
+| Up | any | -100° to -10° |
+| Down | any | 20° to 100° |
+| Center | -15° to 15° | -10° to 20° |
+
+### 2. Blink Detection
+
+- Minimum: 1 blink detected
+- Uses Eye Aspect Ratio (EAR)
+- Threshold: EAR < 0.2 = eyes closed
+
+### 3. Face Consistency
+
+- Checks face size variation across frames
+- Variation < 30% = consistent (real face)
+- Variation > 30% = inconsistent (possible fake)
+
+---
+
+## Error Handling
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `no_face` | Wajah tidak terdeteksi | Pastikan wajah terlihat jelas |
+| `decode_error` | Base64 invalid | Cek format base64 |
+| `no_pose` | Head pose tidak terdeteksi | Pastikan pencahayaan cukup |
+| `Frame not provided` | Frame tidak dikirim | Cek semua frame sudah di-capture |
+
+---
+
+## Performance
+
+- **Response time**: ~2-3 seconds
+- **Accuracy**: ~95% (tergantung kualitas camera)
+- **False positive**: <5%
+- **False negative**: <3%
 
 ---
 
 ## Security Notes
 
-- Foto statis tidak bisa lolos (tidak ada kedipan)
-- Video replay sulit lolos (timing kedipan berbeda)
-- Wajah berbeda akan ditolak (similarity < threshold)
-- Threshold default: 0.4 (40% similarity)
+✅ **Dapat mencegah:**
+- Foto statis
+- Video replay
+- Screen recording
+- Low-quality deepfake
+
+⚠️ **Belum dapat mencegah:**
+- High-quality deepfake dengan real-time rendering
+- 3D mask (sangat jarang)
+
+---
+
+## Testing
+
+### Postman Example
+
+```json
+{
+  "frames": {
+    "right": "iVBORw0KGgo...",
+    "left": "iVBORw0KGgo...",
+    "up": "iVBORw0KGgo...",
+    "down": "iVBORw0KGgo...",
+    "center": "iVBORw0KGgo...",
+    "blink": [
+      "iVBORw0KGgo...",
+      "iVBORw0KGgo...",
+      "iVBORw0KGgo..."
+    ]
+  }
+}
+```
+
+---
+
+## Deployment
+
+- **Platform**: Google Cloud Run
+- **Region**: europe-west1
+- **Memory**: 2GB
+- **CPU**: 2 cores
+- **Scaling**: Auto (0-10 instances)
+
+---
+
+## Tech Stack
+
+- **Framework**: FastAPI
+- **Face Detection**: MediaPipe
+- **Blink Detection**: Eye Aspect Ratio (EAR)
+- **Head Pose**: Landmark-based estimation
+- **Language**: Python 3.11

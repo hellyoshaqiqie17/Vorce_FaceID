@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api/ ./api/
 COPY src/ ./src/
-COPY buffalo_sc/ ./buffalo_sc/
 
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1

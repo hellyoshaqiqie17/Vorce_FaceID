@@ -1,24 +1,23 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from api.models import (
-    RegisterRequest, RegisterResponse,
-    VerifyRequest, VerifyResponse,
-    QuickVerifyRequest,
-    UserListResponse, DeleteUserResponse, HealthResponse
-)
-from api.database import face_db
-from api.face_service import face_service
+from api.models import LivenessRequest, LivenessResponse, HealthResponse
+from api.liveness_service import liveness_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _ = face_service
+    _ = liveness_service
     yield
 
 
-app = FastAPI(title="Face ID API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="Liveness Detection API",
+    version="3.0.0",
+    description="API untuk validasi wajah asli vs foto/video palsu",
+    lifespan=lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,160 +32,51 @@ app.add_middleware(
 async def health():
     return HealthResponse(
         status="ok",
-        model_loaded=face_service.is_model_loaded(),
-        registered_users=face_db.get_user_count()
+        model_loaded=True,
+        service="liveness-detection"
     )
 
 
-@app.post("/api/register", response_model=RegisterResponse)
-async def register(req: RegisterRequest):
+@app.post("/api/liveness/validate", response_model=LivenessResponse)
+async def validate_liveness(req: LivenessRequest):
     """
-    Register wajah baru - SINGLE REQUEST.
-    Kirim 3-15 frames dari berbagai sudut wajah dalam 1 request.
+    Validasi apakah wajah asli atau palsu (foto/video).
+    
+    Flutter mengirim frames dari berbagai pose:
+    - right: hadap kanan
+    - left: hadap kiri
+    - up: lihat atas
+    - down: lihat bawah
+    - center: lihat kamera
+    - blink: array frames untuk deteksi kedipan
+    
+    Response:
+    - is_real: true jika wajah asli, false jika palsu
+    - confidence: 0.0 - 1.0
+    - checks: detail validasi setiap step
     """
-    if face_db.user_exists(req.user_id):
-        return RegisterResponse(success=False, message=f"User '{req.user_id}' sudah terdaftar")
-
-    embeddings = []
-    faces_detected = 0
-
-    for frame_b64 in req.frames_base64:
-        result = face_service.process_base64(frame_b64, generate_embedding=True, check_blink=False)
-        if result.face_detected:
-            faces_detected += 1
-            if result.embedding is not None:
-                embeddings.append(result.embedding)
-
-    if len(embeddings) < 3:
-        return RegisterResponse(
+    try:
+        result = liveness_service.validate_liveness(req.frames)
+        
+        message = "Wajah asli terdeteksi" if result.is_real else "Wajah palsu terdeteksi (foto/video)"
+        
+        return LivenessResponse(
+            success=True,
+            is_real=result.is_real,
+            confidence=result.confidence,
+            checks=result.checks,
+            message=message,
+            details=result.details
+        )
+    
+    except Exception as e:
+        return LivenessResponse(
             success=False,
-            faces_detected=faces_detected,
-            samples_saved=len(embeddings),
-            message=f"Minimal 3 wajah terdeteksi. Hanya {len(embeddings)} berhasil."
+            is_real=False,
+            confidence=0.0,
+            checks={},
+            message=f"Error: {str(e)}"
         )
-
-    avg = face_service.average_embeddings(embeddings)
-    if avg is None:
-        return RegisterResponse(success=False, message="Gagal generate embedding")
-
-    face_db.save_embedding(req.user_id, avg, len(embeddings))
-
-    return RegisterResponse(
-        success=True,
-        user_id=req.user_id,
-        faces_detected=faces_detected,
-        samples_saved=len(embeddings),
-        message=f"Registrasi berhasil dengan {len(embeddings)} samples"
-    )
-
-
-@app.post("/api/verify", response_model=VerifyResponse)
-async def verify(req: VerifyRequest):
-    """
-    Verifikasi wajah dengan liveness detection - SINGLE REQUEST.
-    Kirim 3-10 frames, sistem akan cek kedipan mata + face match.
-    """
-    stored = face_db.get_embedding(req.user_id)
-    if stored is None:
-        return VerifyResponse(success=False, message=f"User '{req.user_id}' tidak ditemukan")
-
-    face_service.reset_blink_detector()
-    embeddings = []
-    blink_detected = False
-    faces_detected = 0
-
-    for frame_b64 in req.frames_base64:
-        result = face_service.process_base64(frame_b64, generate_embedding=True, check_blink=True)
-        if result.face_detected:
-            faces_detected += 1
-            if result.embedding is not None:
-                embeddings.append(result.embedding)
-            if result.blink_result and result.blink_result.blink_count > 0:
-                blink_detected = True
-
-    if faces_detected == 0:
-        return VerifyResponse(
-            success=True, verified=False,
-            faces_detected=0,
-            message="Tidak ada wajah terdeteksi"
-        )
-
-    if not blink_detected:
-        return VerifyResponse(
-            success=True, verified=False,
-            faces_detected=faces_detected,
-            liveness_passed=False,
-            message="Liveness gagal - tidak ada kedipan terdeteksi"
-        )
-
-    if not embeddings:
-        return VerifyResponse(
-            success=True, verified=False,
-            faces_detected=faces_detected,
-            liveness_passed=True,
-            blink_detected=True,
-            message="Gagal generate embedding"
-        )
-
-    avg = face_service.average_embeddings(embeddings)
-    is_match, similarity = face_service.verify_face(avg, stored)
-
-    return VerifyResponse(
-        success=True,
-        verified=is_match,
-        user_id=req.user_id,
-        similarity=round(similarity, 4),
-        threshold=face_service.similarity_threshold,
-        liveness_passed=True,
-        blink_detected=True,
-        faces_detected=faces_detected,
-        message="Verifikasi berhasil" if is_match else "Wajah tidak cocok"
-    )
-
-
-@app.post("/api/verify/quick", response_model=VerifyResponse)
-async def verify_quick(req: QuickVerifyRequest):
-    """
-    Quick verify - 1 frame, tanpa liveness.
-    HANYA untuk testing, tidak aman untuk production.
-    """
-    stored = face_db.get_embedding(req.user_id)
-    if stored is None:
-        return VerifyResponse(success=False, message=f"User '{req.user_id}' tidak ditemukan")
-
-    result = face_service.process_base64(req.frame_base64, generate_embedding=True, check_blink=False)
-
-    if not result.face_detected:
-        return VerifyResponse(success=True, verified=False, message="Wajah tidak terdeteksi")
-
-    if result.embedding is None:
-        return VerifyResponse(success=True, verified=False, faces_detected=1, message="Embedding gagal")
-
-    is_match, similarity = face_service.verify_face(result.embedding, stored)
-
-    return VerifyResponse(
-        success=True,
-        verified=is_match,
-        user_id=req.user_id,
-        similarity=round(similarity, 4),
-        threshold=face_service.similarity_threshold,
-        faces_detected=1,
-        message="Match" if is_match else "Tidak cocok"
-    )
-
-
-@app.get("/api/users", response_model=UserListResponse)
-async def list_users():
-    users = face_db.get_all_users()
-    return UserListResponse(success=True, users=users, total=len(users))
-
-
-@app.delete("/api/users/{user_id}", response_model=DeleteUserResponse)
-async def delete_user(user_id: str):
-    if not face_db.user_exists(user_id):
-        raise HTTPException(status_code=404, detail=f"User '{user_id}' tidak ditemukan")
-    face_db.delete_user(user_id)
-    return DeleteUserResponse(success=True, user_id=user_id, message="User dihapus")
 
 
 if __name__ == "__main__":
