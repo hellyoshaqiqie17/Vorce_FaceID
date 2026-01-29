@@ -18,14 +18,19 @@ class LivenessResult:
 
 class LivenessService:
     def __init__(self):
-        self.face_detector = FaceDetector()
-        self.blink_detector = BlinkDetector()
+        self.face_detector = None
+        self.blink_detector = None
         
         self.pose_thresholds = {
             'right': {'yaw_min': 5, 'yaw_max': 100},
             'left': {'yaw_min': -100, 'yaw_max': -5},
             'center': {'yaw_min': -15, 'yaw_max': 15, 'pitch_min': -10, 'pitch_max': 15}
         }
+    
+    def _ensure_loaded(self):
+        if self.face_detector is None:
+            self.face_detector = FaceDetector()
+            self.blink_detector = BlinkDetector()
     
     def decode_base64(self, base64_str: str) -> Optional[np.ndarray]:
         try:
@@ -38,6 +43,7 @@ class LivenessService:
             return None
     
     def validate_pose(self, frame_b64: str, expected_pose: str) -> Dict[str, Any]:
+        self._ensure_loaded()
         frame = self.decode_base64(frame_b64)
         if frame is None:
             return {
@@ -105,6 +111,7 @@ class LivenessService:
         }
     
     def validate_blink(self, frames_b64: List[str]) -> Dict[str, Any]:
+        self._ensure_loaded()
         self.blink_detector.reset()
         
         blink_count = 0
@@ -136,6 +143,7 @@ class LivenessService:
         }
     
     def validate_liveness(self, frames: Dict[str, Any]) -> LivenessResult:
+        self._ensure_loaded()
         checks = {}
         all_valid = True
         total_confidence = 0.0

@@ -8,8 +8,9 @@ from api.liveness_service import liveness_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _ = liveness_service
+    print("API starting...")
     yield
+    print("API shutting down...")
 
 
 app = FastAPI(
@@ -30,9 +31,10 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
+    model_loaded = liveness_service.face_detector is not None
     return HealthResponse(
         status="ok",
-        model_loaded=True,
+        model_loaded=model_loaded,
         service="liveness-detection"
     )
 
