@@ -1,9 +1,9 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 
 class LivenessRequest(BaseModel):
-    frames: Dict[str, any] = Field(..., description="Frames untuk setiap pose")
+    frames: Dict[str, Any] = Field(..., description="Frames untuk setiap pose")
     
     class Config:
         json_schema_extra = {
@@ -29,9 +29,9 @@ class LivenessResponse(BaseModel):
     success: bool
     is_real: bool = False
     confidence: float = 0.0
-    checks: Dict[str, any] = {}
+    checks: Dict[str, Any] = {}
     message: str = ""
-    details: Optional[Dict[str, any]] = None
+    details: Optional[Dict[str, Any]] = None
 
 
 class HealthResponse(BaseModel):

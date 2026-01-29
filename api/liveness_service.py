@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import base64
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from src.face_detector import FaceDetector
@@ -12,8 +12,8 @@ from src.blink_detector import BlinkDetector
 class LivenessResult:
     is_real: bool
     confidence: float
-    checks: Dict[str, any]
-    details: Dict[str, any]
+    checks: Dict[str, Any]
+    details: Dict[str, Any]
 
 
 class LivenessService:
@@ -37,7 +37,7 @@ class LivenessService:
             print(f"Decode error: {e}")
             return None
     
-    def validate_pose(self, frame_b64: str, expected_pose: str) -> Dict[str, any]:
+    def validate_pose(self, frame_b64: str, expected_pose: str) -> Dict[str, Any]:
         frame = self.decode_base64(frame_b64)
         if frame is None:
             return {
@@ -104,7 +104,7 @@ class LivenessService:
             'pitch': round(pose.pitch, 2)
         }
     
-    def validate_blink(self, frames_b64: List[str]) -> Dict[str, any]:
+    def validate_blink(self, frames_b64: List[str]) -> Dict[str, Any]:
         self.blink_detector.reset()
         
         blink_count = 0
@@ -135,7 +135,7 @@ class LivenessService:
             'confidence': round(confidence, 3)
         }
     
-    def validate_liveness(self, frames: Dict[str, any]) -> LivenessResult:
+    def validate_liveness(self, frames: Dict[str, Any]) -> LivenessResult:
         checks = {}
         all_valid = True
         total_confidence = 0.0
@@ -206,7 +206,7 @@ class LivenessService:
             }
         )
     
-    def _check_face_consistency(self, frames: Dict[str, any]) -> Dict[str, any]:
+    def _check_face_consistency(self, frames: Dict[str, Any]) -> Dict[str, Any]:
         face_sizes = []
         
         for key in ['left', 'right', 'center']:
