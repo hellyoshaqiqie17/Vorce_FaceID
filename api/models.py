@@ -9,10 +9,8 @@ class LivenessRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "frames": {
-                    "right": "base64_image_string",
                     "left": "base64_image_string",
-                    "up": "base64_image_string",
-                    "down": "base64_image_string",
+                    "right": "base64_image_string",
                     "center": "base64_image_string",
                     "blink": ["base64_1", "base64_2", "base64_3"]
                 }

@@ -42,10 +42,8 @@ Content-Type: application/json
 ```json
 {
   "frames": {
-    "right": "base64_image_hadap_kanan",
     "left": "base64_image_hadap_kiri",
-    "up": "base64_image_lihat_atas",
-    "down": "base64_image_lihat_bawah",
+    "right": "base64_image_hadap_kanan",
     "center": "base64_image_lihat_kamera",
     "blink": [
       "base64_frame_1",
@@ -64,14 +62,6 @@ Content-Type: application/json
   "confidence": 0.92,
   "message": "Wajah asli terdeteksi",
   "checks": {
-    "pose_right": {
-      "valid": true,
-      "expected": "right",
-      "actual": "right",
-      "confidence": 0.95,
-      "yaw": 25.3,
-      "pitch": 5.2
-    },
     "pose_left": {
       "valid": true,
       "expected": "left",
@@ -80,21 +70,13 @@ Content-Type: application/json
       "yaw": -22.1,
       "pitch": 3.5
     },
-    "pose_up": {
+    "pose_right": {
       "valid": true,
-      "expected": "up",
-      "actual": "up",
-      "confidence": 0.91,
-      "yaw": 2.1,
-      "pitch": -15.3
-    },
-    "pose_down": {
-      "valid": true,
-      "expected": "down",
-      "actual": "down",
-      "confidence": 0.89,
-      "yaw": -1.2,
-      "pitch": 28.5
+      "expected": "right",
+      "actual": "right",
+      "confidence": 0.95,
+      "yaw": 25.3,
+      "pitch": 5.2
     },
     "pose_center": {
       "valid": true,
@@ -118,8 +100,9 @@ Content-Type: application/json
     }
   },
   "details": {
-    "total_checks": 7,
-    "passed_checks": 7,
+    "total_checks": 5,
+    "passed_checks": 5,
+    "threshold": 0.70,
     "anti_spoofing": {
       "head_movement": true,
       "blink_detected": true,
@@ -137,9 +120,9 @@ Content-Type: application/json
   "confidence": 0.15,
   "message": "Wajah palsu terdeteksi (foto/video)",
   "checks": {
-    "pose_right": {
+    "pose_left": {
       "valid": false,
-      "expected": "right",
+      "expected": "left",
       "actual": "center",
       "confidence": 0.0,
       "yaw": 2.1,
@@ -164,17 +147,11 @@ Content-Type: application/json
 ```dart
 Map<String, dynamic> frames = {};
 
-// Hadap kanan
-frames['right'] = await captureAndConvert();
-
 // Hadap kiri
 frames['left'] = await captureAndConvert();
 
-// Lihat atas
-frames['up'] = await captureAndConvert();
-
-// Lihat bawah
-frames['down'] = await captureAndConvert();
+// Hadap kanan
+frames['right'] = await captureAndConvert();
 
 // Lihat kamera
 frames['center'] = await captureAndConvert();
@@ -234,17 +211,25 @@ Future<String> captureAndConvert() async {
 
 ---
 
-## Validation Checks
+## Validation Logic
+
+**Liveness Detection menggunakan confidence threshold:**
+- **Confidence >= 70%** = Wajah ASLI ✅
+- **Confidence < 70%** = Wajah PALSU (foto/video) ❌
+
+Sistem tidak memerlukan semua check harus valid, cukup overall confidence mencapai 70% atau lebih.
+
+---
+
+## Validation Checks Details
 
 ### 1. Head Pose Detection
 
-| Pose | Yaw Range | Pitch Range |
-|------|-----------|-------------|
-| Right | 15° to 100° | any |
-| Left | -100° to -15° | any |
-| Up | any | -100° to -10° |
-| Down | any | 20° to 100° |
-| Center | -15° to 15° | -10° to 20° |
+| Pose | Yaw Range | Pitch Range | Keterangan |
+|------|-----------|-------------|------------|
+| Left | -100° to -5° | any | Geleng kiri sangat sedikit |
+| Right | 5° to 100° | any | Geleng kanan sangat sedikit |
+| Center | -15° to 15° | -10° to 15° | Wajah di tengah (tidak perlu presisi) |
 
 ### 2. Blink Detection
 
@@ -301,10 +286,8 @@ Future<String> captureAndConvert() async {
 ```json
 {
   "frames": {
-    "right": "iVBORw0KGgo...",
     "left": "iVBORw0KGgo...",
-    "up": "iVBORw0KGgo...",
-    "down": "iVBORw0KGgo...",
+    "right": "iVBORw0KGgo...",
     "center": "iVBORw0KGgo...",
     "blink": [
       "iVBORw0KGgo...",

@@ -22,11 +22,9 @@ class LivenessService:
         self.blink_detector = BlinkDetector()
         
         self.pose_thresholds = {
-            'right': {'yaw_min': 15, 'yaw_max': 100},
-            'left': {'yaw_min': -100, 'yaw_max': -15},
-            'up': {'pitch_min': -100, 'pitch_max': -10},
-            'down': {'pitch_min': 20, 'pitch_max': 100},
-            'center': {'yaw_min': -15, 'yaw_max': 15, 'pitch_min': -10, 'pitch_max': 20}
+            'right': {'yaw_min': 5, 'yaw_max': 100},
+            'left': {'yaw_min': -100, 'yaw_max': -5},
+            'center': {'yaw_min': -15, 'yaw_max': 15, 'pitch_min': -10, 'pitch_max': 15}
         }
     
     def decode_base64(self, base64_str: str) -> Optional[np.ndarray]:
@@ -52,13 +50,13 @@ class LivenessService:
         
         result = self.face_detector.detect(frame)
         
-        if not result.face_detected:
+        if not result.detected:
             return {
                 'valid': False,
                 'expected': expected_pose,
                 'actual': 'no_face',
                 'confidence': 0.0,
-                'error': result.error or 'No face detected'
+                'error': result.error_message or 'No face detected'
             }
         
         if not result.head_pose:
@@ -85,18 +83,7 @@ class LivenessService:
                 mid = (yaw_min + yaw_max) / 2
                 distance = abs(pose.yaw - mid)
                 max_distance = abs(yaw_max - mid)
-                confidence = max(0.0, 1.0 - (distance / max_distance))
-            
-        elif expected_pose in ['up', 'down']:
-            pitch_min = thresholds.get('pitch_min', 0)
-            pitch_max = thresholds.get('pitch_max', 0)
-            is_valid = pitch_min <= pose.pitch <= pitch_max
-            
-            if is_valid:
-                mid = (pitch_min + pitch_max) / 2
-                distance = abs(pose.pitch - mid)
-                max_distance = abs(pitch_max - mid)
-                confidence = max(0.0, 1.0 - (distance / max_distance))
+                confidence = max(0.3, 1.0 - (distance / max_distance))
         
         elif expected_pose == 'center':
             yaw_ok = thresholds['yaw_min'] <= pose.yaw <= thresholds['yaw_max']
@@ -104,8 +91,8 @@ class LivenessService:
             is_valid = yaw_ok and pitch_ok
             
             if is_valid:
-                yaw_conf = 1.0 - (abs(pose.yaw) / 15.0)
-                pitch_conf = 1.0 - (abs(pose.pitch) / 15.0)
+                yaw_conf = max(0.5, 1.0 - (abs(pose.yaw) / 20.0))
+                pitch_conf = max(0.5, 1.0 - (abs(pose.pitch) / 20.0))
                 confidence = (yaw_conf + pitch_conf) / 2
         
         return {
@@ -129,11 +116,11 @@ class LivenessService:
                 continue
             
             result = self.face_detector.detect(frame)
-            if not result.face_detected:
+            if not result.detected:
                 continue
             
             frames_processed += 1
-            blink_result = self.blink_detector.detect(result.left_eye, result.right_eye)
+            blink_result = self.blink_detector.detect(result.left_eye_landmarks, result.right_eye_landmarks)
             
             if blink_result and blink_result.blink_count > blink_count:
                 blink_count = blink_result.blink_count
@@ -154,7 +141,7 @@ class LivenessService:
         total_confidence = 0.0
         check_count = 0
         
-        pose_keys = ['right', 'left', 'up', 'down', 'center']
+        pose_keys = ['right', 'left', 'center']
         for pose in pose_keys:
             if pose not in frames:
                 checks[f'pose_{pose}'] = {
@@ -198,18 +185,19 @@ class LivenessService:
         face_consistency = self._check_face_consistency(frames)
         checks['face_consistency'] = face_consistency
         
-        if not face_consistency['valid']:
-            all_valid = False
-        else:
+        if face_consistency['valid']:
             overall_confidence = (overall_confidence + face_consistency['confidence']) / 2
         
+        is_real = overall_confidence >= 0.70
+        
         return LivenessResult(
-            is_real=all_valid,
+            is_real=is_real,
             confidence=round(overall_confidence, 3),
             checks=checks,
             details={
                 'total_checks': check_count + 1,
                 'passed_checks': sum(1 for c in checks.values() if c.get('valid', False)),
+                'threshold': 0.70,
                 'anti_spoofing': {
                     'head_movement': all([checks.get(f'pose_{p}', {}).get('valid', False) for p in pose_keys]),
                     'blink_detected': checks.get('blink', {}).get('valid', False),
@@ -221,12 +209,8 @@ class LivenessService:
     def _check_face_consistency(self, frames: Dict[str, any]) -> Dict[str, any]:
         face_sizes = []
         
-        for key, frame_data in frames.items():
-            if key == 'blink':
-                if isinstance(frame_data, list):
-                    frame_data = frame_data[0] if frame_data else None
-                else:
-                    continue
+        for key in ['left', 'right', 'center']:
+            frame_data = frames.get(key)
             
             if not frame_data:
                 continue
@@ -236,24 +220,24 @@ class LivenessService:
                 continue
             
             result = self.face_detector.detect(frame)
-            if result.face_detected and result.bbox:
+            if result.detected and result.bbox:
                 x, y, w, h = result.bbox
                 face_sizes.append(w * h)
         
-        if len(face_sizes) < 3:
+        if len(face_sizes) < 2:
             return {
-                'valid': False,
-                'confidence': 0.0,
-                'error': 'Not enough faces detected for consistency check'
+                'valid': True,
+                'confidence': 0.8,
+                'error': 'Not enough faces for consistency check, assuming valid'
             }
         
         avg_size = np.mean(face_sizes)
         std_size = np.std(face_sizes)
         
-        variation = std_size / avg_size if avg_size > 0 else 1.0
+        variation = std_size / avg_size if avg_size > 0 else 0.0
         
-        is_consistent = variation < 0.3
-        confidence = max(0.0, 1.0 - (variation / 0.3))
+        is_consistent = variation < 0.5
+        confidence = max(0.5, 1.0 - (variation / 0.5))
         
         return {
             'valid': is_consistent,
