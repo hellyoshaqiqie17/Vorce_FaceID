@@ -1,0 +1,215 @@
+{
+  "info": {
+    "name": "Liveness Detection API",
+    "description": "API untuk validasi wajah asli vs foto/video palsu",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://vorce-faceid-544676101248.europe-west1.run.app/health",
+          "protocol": "https",
+          "host": [
+            "vorce-faceid-544676101248",
+            "europe-west1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "description": "Check API status dan apakah model sudah loaded"
+      },
+      "response": [
+        {
+          "name": "Success",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://vorce-faceid-544676101248.europe-west1.run.app/health",
+              "protocol": "https",
+              "host": [
+                "vorce-faceid-544676101248",
+                "europe-west1",
+                "run",
+                "app"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"status\": \"ok\",\n  \"model_loaded\": false,\n  \"service\": \"liveness-detection\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Validate Liveness - Real Face",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"frames\": {\n    \"left\": \"{{left_base64}}\",\n    \"right\": \"{{right_base64}}\",\n    \"center\": \"{{center_base64}}\",\n    \"blink\": [\n      \"{{blink_frame_1}}\",\n      \"{{blink_frame_2}}\",\n      \"{{blink_frame_3}}\"\n    ]\n  }\n}"
+        },
+        "url": {
+          "raw": "https://vorce-faceid-544676101248.europe-west1.run.app/api/liveness/validate",
+          "protocol": "https",
+          "host": [
+            "vorce-faceid-544676101248",
+            "europe-west1",
+            "run",
+            "app"
+          ],
+          "path": [
+            "api",
+            "liveness",
+            "validate"
+          ]
+        },
+        "description": "Validasi wajah asli dengan mengirim 4 frames (left, right, center, blink)\n\nNote: Ganti {{variable}} dengan base64 string dari gambar yang sebenarnya"
+      },
+      "response": [
+        {
+          "name": "Real Face (Confidence >= 70%)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"frames\": {\n    \"left\": \"base64_string\",\n    \"right\": \"base64_string\",\n    \"center\": \"base64_string\",\n    \"blink\": [\"base64_1\", \"base64_2\", \"base64_3\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "https://vorce-faceid-544676101248.europe-west1.run.app/api/liveness/validate",
+              "protocol": "https",
+              "host": [
+                "vorce-faceid-544676101248",
+                "europe-west1",
+                "run",
+                "app"
+              ],
+              "path": [
+                "api",
+                "liveness",
+                "validate"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"success\": true,\n  \"is_real\": true,\n  \"confidence\": 0.85,\n  \"message\": \"Wajah asli terdeteksi\",\n  \"checks\": {\n    \"pose_left\": {\n      \"valid\": true,\n      \"expected\": \"left\",\n      \"actual\": \"left\",\n      \"confidence\": 0.88,\n      \"yaw\": -22.1,\n      \"pitch\": 3.5\n    },\n    \"pose_right\": {\n      \"valid\": true,\n      \"expected\": \"right\",\n      \"actual\": \"right\",\n      \"confidence\": 0.95,\n      \"yaw\": 25.3,\n      \"pitch\": 5.2\n    },\n    \"pose_center\": {\n      \"valid\": true,\n      \"expected\": \"center\",\n      \"actual\": \"center\",\n      \"confidence\": 0.96,\n      \"yaw\": 0.5,\n      \"pitch\": 2.1\n    },\n    \"blink\": {\n      \"valid\": true,\n      \"blink_count\": 2,\n      \"frames_processed\": 3,\n      \"confidence\": 1.0\n    },\n    \"face_consistency\": {\n      \"valid\": true,\n      \"confidence\": 0.94,\n      \"variation\": 0.12,\n      \"avg_face_size\": 45230.5\n    }\n  },\n  \"details\": {\n    \"total_checks\": 5,\n    \"passed_checks\": 5,\n    \"threshold\": 0.70,\n    \"anti_spoofing\": {\n      \"head_movement\": true,\n      \"blink_detected\": true,\n      \"face_consistency\": true\n    }\n  }\n}"
+        },
+        {
+          "name": "Fake Face (Confidence < 70%)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"frames\": {\n    \"left\": \"base64_string\",\n    \"right\": \"base64_string\",\n    \"center\": \"base64_string\",\n    \"blink\": [\"base64_1\", \"base64_2\", \"base64_3\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "https://vorce-faceid-544676101248.europe-west1.run.app/api/liveness/validate",
+              "protocol": "https",
+              "host": [
+                "vorce-faceid-544676101248",
+                "europe-west1",
+                "run",
+                "app"
+              ],
+              "path": [
+                "api",
+                "liveness",
+                "validate"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"success\": true,\n  \"is_real\": false,\n  \"confidence\": 0.45,\n  \"message\": \"Wajah palsu terdeteksi (foto/video)\",\n  \"checks\": {\n    \"pose_left\": {\n      \"valid\": false,\n      \"expected\": \"left\",\n      \"actual\": \"center\",\n      \"confidence\": 0.0,\n      \"yaw\": 2.1,\n      \"pitch\": 1.5\n    },\n    \"pose_right\": {\n      \"valid\": true,\n      \"expected\": \"right\",\n      \"actual\": \"right\",\n      \"confidence\": 0.54,\n      \"yaw\": 8.3,\n      \"pitch\": 2.1\n    },\n    \"pose_center\": {\n      \"valid\": true,\n      \"expected\": \"center\",\n      \"actual\": \"center\",\n      \"confidence\": 0.80,\n      \"yaw\": 1.2,\n      \"pitch\": 0.5\n    },\n    \"blink\": {\n      \"valid\": false,\n      \"blink_count\": 0,\n      \"frames_processed\": 3,\n      \"confidence\": 0.0\n    },\n    \"face_consistency\": {\n      \"valid\": true,\n      \"confidence\": 0.75,\n      \"variation\": 0.18,\n      \"avg_face_size\": 42130.2\n    }\n  },\n  \"details\": {\n    \"total_checks\": 5,\n    \"passed_checks\": 3,\n    \"threshold\": 0.70,\n    \"anti_spoofing\": {\n      \"head_movement\": false,\n      \"blink_detected\": false,\n      \"face_consistency\": true\n    }\n  }\n}"
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://vorce-faceid-544676101248.europe-west1.run.app",
+      "type": "string"
+    },
+    {
+      "key": "left_base64",
+      "value": "REPLACE_WITH_BASE64_IMAGE",
+      "type": "string"
+    },
+    {
+      "key": "right_base64",
+      "value": "REPLACE_WITH_BASE64_IMAGE",
+      "type": "string"
+    },
+    {
+      "key": "center_base64",
+      "value": "REPLACE_WITH_BASE64_IMAGE",
+      "type": "string"
+    },
+    {
+      "key": "blink_frame_1",
+      "value": "REPLACE_WITH_BASE64_IMAGE",
+      "type": "string"
+    },
+    {
+      "key": "blink_frame_2",
+      "value": "REPLACE_WITH_BASE64_IMAGE",
+      "type": "string"
+    },
+    {
+      "key": "blink_frame_3",
+      "value": "REPLACE_WITH_BASE64_IMAGE",
+      "type": "string"
+    }
+  ]
+}
